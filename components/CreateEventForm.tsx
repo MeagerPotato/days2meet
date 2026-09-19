@@ -257,29 +257,31 @@ export default function CreateEventForm() {
         </div>
 
         <fieldset>
-          <legend className="label">Mode</legend>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <legend className="sr-only">Mode</legend>
+          {/* One track, two halves, and a thumb that slides under whichever is
+              chosen. Still a pair of radios underneath, so arrow keys move
+              between them and a screen reader hears a choice of two. */}
+          <div className="relative grid grid-cols-2 rounded-xl bg-line/60 p-1">
+            <span
+              aria-hidden="true"
+              className={[
+                'pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg border border-[#8fd4ae] bg-[#d9f2e4] shadow-sm',
+                'transition-transform duration-200 ease-out motion-reduce:transition-none',
+                mode === 'date_only' ? 'translate-x-full' : 'translate-x-0',
+              ].join(' ')}
+            />
             {(
               [
-                {
-                  value: 'date_time' as const,
-                  title: 'Dates & times',
-                  blurb: "Everyone marks the hours they're free.",
-                },
-                {
-                  value: 'date_only' as const,
-                  title: 'Dates only',
-                  blurb: "Everyone marks the days they're free. Good for far-off planning.",
-                },
-              ] satisfies { value: EventMode; title: string; blurb: string }[]
+                { value: 'date_time' as const, title: 'Dates & times' },
+                { value: 'date_only' as const, title: 'Dates only' },
+              ] satisfies { value: EventMode; title: string }[]
             ).map((option) => (
               <label
                 key={option.value}
                 className={[
-                  'block cursor-pointer rounded-lg border p-3 transition-colors',
-                  mode === option.value
-                    ? 'border-ink bg-surface'
-                    : 'border-line bg-surface hover:border-[#c9ccd4]',
+                  'relative flex min-h-11 cursor-pointer items-center justify-center rounded-lg px-3 text-[0.9375rem] font-medium transition-colors',
+                  'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent',
+                  mode === option.value ? 'text-[#0f4c33]' : 'text-muted hover:text-ink',
                 ].join(' ')}
               >
                 <input
@@ -290,17 +292,7 @@ export default function CreateEventForm() {
                   checked={mode === option.value}
                   onChange={() => changeMode(option.value)}
                 />
-                <span className="flex items-center gap-2 text-[0.9375rem] font-semibold">
-                  <span
-                    aria-hidden="true"
-                    className={[
-                      'inline-block size-3.5 shrink-0 rounded-full border',
-                      mode === option.value ? 'border-[5px] border-ink' : 'border-line',
-                    ].join(' ')}
-                  />
-                  {option.title}
-                </span>
-                <span className="hint mt-1 block pl-[1.375rem]">{option.blurb}</span>
+                {option.title}
               </label>
             ))}
           </div>
@@ -317,41 +309,39 @@ export default function CreateEventForm() {
           <>
             <fieldset>
               <legend className="label">Time window</legend>
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[8.5rem] flex-1">
-                  <label className="hint mb-1 block" htmlFor="start-minute">
-                    No earlier than
-                  </label>
-                  <select
-                    id="start-minute"
-                    className="field num min-h-11"
-                    value={startMinute}
-                    onChange={(event) => setStartMinute(Number(event.target.value))}
-                  >
-                    {START_OPTIONS.map((minute) => (
-                      <option key={minute} value={minute}>
-                        {formatMinuteOfDay(minute)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="min-w-[8.5rem] flex-1">
-                  <label className="hint mb-1 block" htmlFor="end-minute">
-                    No later than
-                  </label>
-                  <select
-                    id="end-minute"
-                    className="field num min-h-11"
-                    value={endMinute}
-                    onChange={(event) => setEndMinute(Number(event.target.value))}
-                  >
-                    {END_OPTIONS.map((minute) => (
-                      <option key={minute} value={minute}>
-                        {minute === 1440 ? '12:00 AM (midnight)' : formatMinuteOfDay(minute)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Reads as a sentence, "9:00 AM to 5:00 PM", so the selects need
+                  no visible labels of their own; screen readers get them from
+                  aria-label, inside the fieldset's "Time window". */}
+              <div className="flex items-center gap-2 sm:gap-3">
+                <select
+                  id="start-minute"
+                  aria-label="Start time"
+                  className="field num min-h-11 min-w-0 flex-1"
+                  value={startMinute}
+                  onChange={(event) => setStartMinute(Number(event.target.value))}
+                >
+                  {START_OPTIONS.map((minute) => (
+                    <option key={minute} value={minute}>
+                      {formatMinuteOfDay(minute)}
+                    </option>
+                  ))}
+                </select>
+                <span aria-hidden="true" className="shrink-0 text-[0.9375rem] text-muted">
+                  to
+                </span>
+                <select
+                  id="end-minute"
+                  aria-label="End time"
+                  className="field num min-h-11 min-w-0 flex-1"
+                  value={endMinute}
+                  onChange={(event) => setEndMinute(Number(event.target.value))}
+                >
+                  {END_OPTIONS.map((minute) => (
+                    <option key={minute} value={minute}>
+                      {minute === 1440 ? '12:00 AM (midnight)' : formatMinuteOfDay(minute)}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="mt-3">
