@@ -33,7 +33,7 @@ export async function DELETE(
     // to it and leaves the event with no owner the session can recover. Refuse
     // it, whoever is asking, rather than strand the controls.
     if (target.id === event.leader_participant_id) {
-      return jsonError('The group leader cannot be removed from their own days2meet.', 403);
+      return jsonError('The event planner cannot be removed from their own days2meet.', 403);
     }
 
     const store = await cookies();
@@ -50,7 +50,7 @@ export async function DELETE(
       if (!sessionId) {
         return jsonError('You are signed out. Enter your name again to remove a response.', 401);
       }
-      return jsonError('Only the group leader can remove someone else\'s response.', 403);
+      return jsonError('Only the event planner can remove someone else\'s response.', 403);
     }
 
     // Closing an event freezes the tally. The leader may still curate the roster,

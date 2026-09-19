@@ -72,7 +72,7 @@ export default function Roster({
     );
   }, [participants, query]);
 
-  // A poll can remove the row out from under an open confirmation.
+  // A refresh can remove the row out from under an open confirmation.
   useEffect(() => {
     if (confirmId && !participants.some((person) => person.id === confirmId)) setConfirmId(null);
   }, [participants, confirmId]);
@@ -92,14 +92,14 @@ export default function Roster({
   };
 
   const hint = (() => {
-    if (picked === 0) return 'Click names to see where they overlap. Pick as many as you like.';
+    if (picked === 0) return 'Pick names to see where they overlap. Pick as many as you like.';
     if (overlapCount === 0) {
       return picked === 1
         ? 'This person has not marked anything yet.'
         : `No overlap between these ${picked}.`;
     }
     return picked === 1
-      ? 'Showing one person. Click another name to intersect them.'
+      ? 'Showing one person. Pick another name to intersect them.'
       : `Showing where all ${picked} overlap.`;
   })();
 
@@ -158,7 +158,7 @@ export default function Roster({
                   </span>
                   <button
                     type="button"
-                    className="btn btn-danger"
+                    className="btn btn-danger min-h-11 sm:min-h-0"
                     disabled={busyId === person.id}
                     onClick={() => void remove(person.id)}
                   >
@@ -169,7 +169,7 @@ export default function Roster({
                   <button
                     ref={cancelRef}
                     type="button"
-                    className="btn"
+                    className="btn min-h-11 sm:min-h-0"
                     onClick={() => setConfirmId(null)}
                   >
                     Cancel
@@ -207,7 +207,7 @@ export default function Roster({
                 </span>
                 {person.id === leaderId ? (
                   <span className="shrink-0 rounded-full border border-ramp-3 bg-ramp-1 px-1.5 py-px text-[0.625rem] font-semibold uppercase tracking-wide text-accent">
-                    Group leader
+                    Event Planner
                   </span>
                 ) : null}
                 {isMe ? <span className="hint shrink-0 text-[0.75rem]">(you)</span> : null}
@@ -241,7 +241,11 @@ export default function Roster({
           {hint}
         </p>
         {picked > 0 ? (
-          <button type="button" className="btn-link shrink-0" onClick={onClear}>
+          <button
+            type="button"
+            className="btn-link -my-2 shrink-0 py-2 sm:my-0 sm:py-0"
+            onClick={onClear}
+          >
             Show everyone
           </button>
         ) : null}

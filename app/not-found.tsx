@@ -7,7 +7,7 @@ export default function NotFound() {
       <p className="hint mt-2">
         Check the URL, or ask whoever shared it to send the link again.
       </p>
-      <Link href="/" className="btn btn-primary mt-5 inline-flex">
+      <Link href="/" className="btn btn-primary mt-5 inline-flex min-h-11">
         Create an event
       </Link>
     </main>

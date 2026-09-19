@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { formatMonthTitle, formatWeekdayMonthDay, toKey, toLocalDate } from '@/lib/dates';
 import { FULL_HOUSE_CLASS, isFullHouse, rampFillClass, rampStep, rampTextClass } from '@/lib/results';
 import { DAY_CELL_MIN_HEIGHT, type EventGeometry } from '@/lib/slots';
 import HighlightOverlay from './HighlightOverlay';
+import PaintStatus from './PaintStatus';
 import type { HoverPayload } from './TimeGrid';
-import { useScrollLock } from './useScrollLock';
+import { usePaintGesture } from './usePaintGesture';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -23,6 +24,12 @@ interface Props {
   filterSet?: Set<number> | null;
   highlightKeys?: string[] | null;
   onHover?: (payload: HoverPayload | null) => void;
+}
+
+function slotOfElement(element: Element | null): number | null {
+  const cell = element?.closest<HTMLElement>('[data-cell]');
+  if (!cell?.dataset.cell) return null;
+  return Number(cell.dataset.cell);
 }
 
 function monthGrid(year: number, month: number): (string | null)[] {
@@ -54,15 +61,18 @@ export default function DateOnlyGrid({
   const contentRef = useRef<HTMLDivElement>(null);
   const [preview, setPreviewState] = useState<{ slots: Set<number>; adding: boolean } | null>(null);
   const previewRef = useRef<{ slots: Set<number>; adding: boolean } | null>(null);
-  const dragRef = useRef<{ active: boolean; adding: boolean; touch: boolean } | null>(null);
+  const dragRef = useRef<{ adding: boolean } | null>(null);
+  /** The touch anchor, lit while a finger paints. */
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const lastPointerType = useRef('mouse');
+
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
 
   const setPreview = (next: { slots: Set<number>; adding: boolean } | null) => {
     previewRef.current = next;
     setPreviewState(next);
   };
-
-  // See TimeGrid: touch only, and `preview` is the half of the drag a render sees.
-  useScrollLock(preview !== null && dragRef.current?.touch === true);
 
   const indexByDate = useMemo(
     () => new Map(geometry.dates.map((date, index) => [date, index] as const)),
@@ -93,73 +103,65 @@ export default function DateOnlyGrid({
     return next;
   }, [selected, preview]);
 
-  const slotAtPoint = (clientX: number, clientY: number): number | null => {
-    const element = document.elementFromPoint(clientX, clientY);
-    const cell = element?.closest('[data-cell]') as HTMLElement | null;
-    if (!cell?.dataset.cell) return null;
-    return Number(cell.dataset.cell);
-  };
-
-  const startDrag = (event: React.PointerEvent<HTMLButtonElement>, slot: number) => {
-    if (!editable) return;
-    event.preventDefault();
-    onPaintStart?.();
-    const adding = !selected.has(slot);
-    dragRef.current = { active: true, adding, touch: event.pointerType === 'touch' };
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // See TimeGrid: capture is best-effort, the window listeners are the guarantee.
-    }
-    setPreview({ slots: new Set([slot]), adding });
-  };
-
-  const extendDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = dragRef.current;
-    if (!editable || !drag?.active) return;
-    const slot = slotAtPoint(event.clientX, event.clientY);
-    if (slot === null) return;
-    const current = previewRef.current;
-    if (current?.slots.has(slot)) return;
-    const slots = new Set(current?.slots ?? []);
-    slots.add(slot);
-    setPreview({ slots, adding: drag.adding });
-  };
-
-  useEffect(() => {
-    if (!editable) return;
-    const finish = () => {
-      const drag = dragRef.current;
-      if (!drag?.active) return;
-      dragRef.current = null;
-      const current = previewRef.current;
-      previewRef.current = null;
-      setPreviewState(null);
-      if (!current) return;
-      const next = new Set(selected);
-      for (const slot of current.slots) {
-        if (current.adding) next.add(slot);
-        else next.delete(slot);
-      }
-      onCommit?.(next);
-    };
-    window.addEventListener('pointerup', finish);
-    window.addEventListener('pointercancel', finish);
-    return () => {
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', finish);
-    };
-  }, [editable, selected, onCommit]);
-
   const toggle = (slot: number) => {
-    const next = new Set(selected);
+    const next = new Set(selectedRef.current);
     if (next.has(slot)) next.delete(slot);
     else next.add(slot);
     onCommit?.(next);
   };
 
+  // Mouse: paint on press, as it always has. Finger: swipe scrolls, tap
+  // toggles, press-and-hold then drag paints. See usePaintGesture.
+  const paint = usePaintGesture<number>({
+    enabled: editable,
+    surfaceRef: contentRef,
+    keyOf: slotOfElement,
+    onBegin: (slot, pointerType) => {
+      onPaintStart?.();
+      const adding = !selectedRef.current.has(slot);
+      dragRef.current = { adding };
+      if (pointerType !== 'mouse') setAnchor(slot);
+      setPreview({ slots: new Set([slot]), adding });
+    },
+    onExtend: (slot) => {
+      const drag = dragRef.current;
+      const current = previewRef.current;
+      if (!drag || current?.slots.has(slot)) return;
+      const slots = new Set(current?.slots ?? []);
+      slots.add(slot);
+      setPreview({ slots, adding: drag.adding });
+    },
+    onEnd: () => {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      setAnchor(null);
+      const current = previewRef.current;
+      previewRef.current = null;
+      setPreviewState(null);
+      if (!drag || !current) return;
+      const next = new Set(selectedRef.current);
+      for (const slot of current.slots) {
+        if (current.adding) next.add(slot);
+        else next.delete(slot);
+      }
+      onCommit?.(next);
+    },
+    onTap: (slot) => {
+      onPaintStart?.();
+      toggle(slot);
+    },
+  });
+
   return (
-    <div ref={contentRef} className={`relative ${editable ? 'no-touch-pan' : ''}`}>
+    <div
+      ref={contentRef}
+      className="paint-surface relative"
+      onPointerDown={(event) => {
+        lastPointerType.current = event.pointerType;
+        paint.onPointerDown(event);
+      }}
+      onPointerMove={editable ? paint.onPointerMove : undefined}
+    >
       <div className="grid gap-4 sm:grid-cols-2">
         {months.map(({ year, month }) => (
           <div key={`${year}-${month}`}>
@@ -168,7 +170,10 @@ export default function DateOnlyGrid({
             </div>
             <div className="mb-1 grid grid-cols-7 gap-0.5 sm:gap-1">
               {WEEKDAYS.map((day) => (
-                <div key={day} className="num text-center text-[0.625rem] uppercase text-muted">
+                <div
+                  key={day}
+                  className="num text-center text-[0.75rem] font-medium uppercase text-label"
+                >
                   <span aria-hidden="true">{day.slice(0, 1)}</span>
                   <span className="sr-only">{day}</span>
                 </div>
@@ -222,8 +227,10 @@ export default function DateOnlyGrid({
                         if (event.pointerType === 'touch') return;
                         onHover?.(null);
                       }}
-                      onPointerDown={(event) => {
-                        if (event.pointerType !== 'touch') return;
+                      // A tap, not a pointerdown: a swipe that starts on a day is a
+                      // scroll and should not pop a tooltip up on its way past.
+                      onClick={(event) => {
+                        if (lastPointerType.current === 'mouse') return;
                         const box = event.currentTarget.getBoundingClientRect();
                         onHover?.({ slot, x: box.left + box.width / 2, y: box.top, pinned: true });
                       }}
@@ -238,10 +245,12 @@ export default function DateOnlyGrid({
                       </span>
                       {totalParticipants > 0 ? (
                         // Full opacity: the ramp step already sets this apart from
-                        // the day number above it, and at 10px the extra fade left
-                        // the count just under the AA contrast floor on the darker
-                        // cells.
-                        <span className="num text-right text-[0.625rem] leading-none">
+                        // the day number above it, and at this size the extra fade
+                        // left the count just under the AA contrast floor on the
+                        // darker cells. 11px medium: a step up from 10px regular,
+                        // and still a step under the 12px day number so the date
+                        // leads.
+                        <span className="num text-right text-[0.6875rem] font-medium leading-none">
                           {count}/{totalParticipants}
                         </span>
                       ) : null}
@@ -257,8 +266,6 @@ export default function DateOnlyGrid({
                     data-cell={slot}
                     aria-pressed={isMine}
                     aria-label={`${formatWeekdayMonthDay(date)}, ${isMine ? 'free' : 'not free'}`}
-                    onPointerDown={(event) => startDrag(event, slot)}
-                    onPointerMove={extendDrag}
                     onClick={(event) => {
                       // Keyboard activation reports detail 0 and skips the drag path.
                       if (event.detail === 0) toggle(slot);
@@ -268,6 +275,7 @@ export default function DateOnlyGrid({
                       isMine
                         ? 'border-you bg-[#faefc9] shadow-[inset_0_0_0_1px_var(--color-you)]'
                         : 'border-line bg-surface hover:bg-[#fdf8e8]',
+                      anchor === slot ? 'paint-anchor' : '',
                     ].join(' ')}
                   >
                     {/* The fill and ring carry "free"; the aria-label says it for screen readers. */}
@@ -283,6 +291,10 @@ export default function DateOnlyGrid({
       </div>
 
       <HighlightOverlay containerRef={contentRef} keys={highlightKeys} shape="bracket" />
+
+      {paint.touchPainting && preview ? (
+        <PaintStatus adding={preview.adding} count={preview.slots.size} unit="day" />
+      ) : null}
     </div>
   );
 }

@@ -110,7 +110,7 @@ export default function ResultsPanel({
                         {window.minCount}/{total}
                       </span>
                     </div>
-                    <p className="hint mt-0.5 hidden group-hover:block group-focus-within:block">
+                    <p className="hint mt-0.5 hidden group-hover:block group-focus-within:block pointer-coarse:block">
                       <NameList names={names} empty="No one" />
                     </p>
                   </div>
@@ -271,7 +271,7 @@ export default function ResultsPanel({
                         {stretch.minCount}/{total}
                       </span>
                     </div>
-                    <p className="hint mt-0.5 hidden group-hover:block group-focus-within:block">
+                    <p className="hint mt-0.5 hidden group-hover:block group-focus-within:block pointer-coarse:block">
                       Free every day: <NameList names={names} empty="no one" />
                     </p>
                   </div>

@@ -110,7 +110,10 @@ export default function ShareDialog({ url, eventTitle, onContinue }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/30 p-4 sm:items-center"
+      // A bottom sheet on a phone, with the padding clearing the home
+      // indicator. The panel scrolls inside itself if it outgrows a short
+      // landscape screen, since the page behind it is locked.
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
       // Pointerdown rather than click: a selection that starts on the link and
       // ends past the edge still fires a click here, and would navigate away
       // mid-drag.
@@ -123,7 +126,7 @@ export default function ShareDialog({ url, eventTitle, onContinue }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-dialog-title"
-        className="panel w-full max-w-md p-4 shadow-lg sm:p-5"
+        className="panel max-h-full w-full max-w-md overflow-y-auto overscroll-contain p-4 shadow-lg sm:p-5"
       >
         <h2 id="share-dialog-title" className="section-title">
           Event created
@@ -138,7 +141,7 @@ export default function ShareDialog({ url, eventTitle, onContinue }: Props) {
         </label>
         <input
           id="share-url"
-          className="field num text-[0.8125rem]"
+          className="field font-mono text-[0.8125rem]"
           value={url}
           readOnly
           onFocus={(event) => event.currentTarget.select()}

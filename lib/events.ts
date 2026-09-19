@@ -33,11 +33,13 @@ export interface EventRow {
   leader_participant_id: string | null;
   collect_email: boolean;
   email_required: boolean;
+  /** The planner's wording for the email box; null means the default. */
+  email_prompt: string | null;
   responses_closed: boolean;
 }
 
 const EVENT_COLUMNS =
-  'id, slug, title, mode, dates, timezone, start_minute, end_minute, slot_minutes, created_at, leader_participant_id, collect_email, email_required, responses_closed';
+  'id, slug, title, mode, dates, timezone, start_minute, end_minute, slot_minutes, created_at, leader_participant_id, collect_email, email_required, email_prompt, responses_closed';
 const PARTICIPANT_PUBLIC_COLUMNS = 'id, name, slots, updated_at';
 const PARTICIPANT_LEADER_COLUMNS = 'id, name, slots, updated_at, email';
 
@@ -53,7 +55,7 @@ interface ParticipantRecord {
  * A ceiling on how many people one event may hold. Set far above any real
  * gathering this app is for, so it never troubles a genuine poll, but low enough
  * that a script cannot inflate a roster without bound — every extra row is
- * loaded and re-serialised to every viewer on each poll, so an unbounded roster
+ * loaded and re-serialised to every viewer on each load, so an unbounded roster
  * is a denial-of-service on the very people trying to use it.
  */
 export const MAX_PARTICIPANTS_PER_EVENT = 500;
@@ -146,6 +148,7 @@ export function toEventPayload(
     leaderId: row.leader_participant_id,
     collectEmail: row.collect_email,
     emailRequired: row.email_required,
+    emailPrompt: row.email_prompt ?? null,
     responsesClosed: row.responses_closed,
     viewerIsLeader,
     viewerEmail,
@@ -159,8 +162,8 @@ export function toEventPayload(
  * only when it is the leader's own id.
  *
  * The creator's admin cookie also counts as the leader for permissions, but not
- * here: this payload is rendered and polled on every page load, and asking it to
- * verify a token would cost a scrypt each time. Someone holding that cookie can
+ * here: this payload is rendered on every page load and refetched on every
+ * refresh, and asking it to verify a token would cost a scrypt each time. Someone holding that cookie can
  * sign in and get the same view.
  */
 export async function getEventPayload(
@@ -175,7 +178,7 @@ export async function getEventPayload(
   const participants = await listParticipants(row.id, viewerIsLeader);
   // The address is only handed back to someone who proved they own it. A
   // name-only session is unverified, so a stranger who signed in with a public
-  // name gets no email — neither their target's nor anyone's — on any poll.
+  // name gets no email — neither their target's nor anyone's — on any fetch.
   const canSeeEmail = viewerId != null && (viewerIsLeader || viewerVerified);
   const viewerEmail = canSeeEmail ? await readParticipantEmail(row.id, viewerId) : null;
   return toEventPayload(row, participants, viewerEmail, viewerIsLeader);
@@ -264,10 +267,10 @@ export async function claimLeader(eventId: string, participantId: string): Promi
 /**
  * The creator's own row, written straight after the event they just made.
  *
- * A brand-new event has no other participants, so neither unique index on
- * w2m_participants has anything to collide with and this cannot raise a 23505.
- * The "that email has already answered" case belongs to signin, where a
- * respondent may reach for an address the leader is already holding.
+ * A brand-new event has no other participants, so the name index has nothing
+ * to collide with and this cannot raise a 23505. The row carries no address:
+ * the planner is never asked for one, since the app sends no email and their
+ * name and password are what sign them back in.
  *
  * `passwordHash` is required rather than optional, unlike a respondent's: this
  * row owns the leader controls, so leaving the column null would hand them to
@@ -276,12 +279,11 @@ export async function claimLeader(eventId: string, participantId: string): Promi
 export async function createLeaderParticipant(
   eventId: string,
   name: string,
-  email: string,
   passwordHash: string,
 ): Promise<string> {
   const { data, error } = await supabaseAdmin()
     .from(PARTICIPANTS_TABLE)
-    .insert({ event_id: eventId, name, slots: [], email, password_hash: passwordHash })
+    .insert({ event_id: eventId, name, slots: [], email: null, password_hash: passwordHash })
     .select('id')
     .single();
 
@@ -418,6 +420,7 @@ export interface EventPatch {
   end_minute?: number;
   slot_minutes?: number;
   email_required?: boolean;
+  email_prompt?: string | null;
   responses_closed?: boolean;
 }
 

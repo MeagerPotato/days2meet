@@ -11,6 +11,7 @@ import {
   updateEvent,
 } from '@/lib/events';
 import { jsonError, readJsonBody, serverError } from '@/lib/http';
+import { emailPromptProblem, normalizeEmailPrompt } from '@/lib/identity';
 import { adminCookieName, cookieName, readCookieValue, readSession } from '@/lib/session';
 import { ALLOWED_GRANULARITY, MAX_DATES, type EventGeometry } from '@/lib/slots';
 
@@ -21,7 +22,7 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
   try {
     const { slug } = await context.params;
 
-    // The poll carries the viewer's own address back to them, so it has to know
+    // A refresh carries the viewer's own address back to them, so it has to know
     // who is asking — and whether they proved it, since only a verified session
     // is shown the address.
     const store = await cookies();
@@ -62,7 +63,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ slug:
       if (!sessionId) {
         return jsonError('You are signed out. Enter your name again to change this days2meet.', 401);
       }
-      return jsonError('Only the group leader can change this days2meet.', 403);
+      return jsonError('Only the event planner can change this days2meet.', 403);
     }
 
     // Both are baked into every stored slot index and every rendered label, so
@@ -147,6 +148,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ slug:
         return jsonError('The email requirement has to be true or false.');
       }
       patch.email_required = body.emailRequired;
+    }
+
+    // The planner's wording for the email box. Kept even while the address is
+    // optional, so turning "required" off and on again brings their text back.
+    // Null, empty or the untouched default all store null: "use the default".
+    if (body.emailPrompt !== undefined) {
+      const promptProblem = emailPromptProblem(body.emailPrompt);
+      if (promptProblem) return jsonError(promptProblem);
+      patch.email_prompt = normalizeEmailPrompt(body.emailPrompt);
     }
 
     if (body.responsesClosed !== undefined) {

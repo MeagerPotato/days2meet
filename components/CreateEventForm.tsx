@@ -7,12 +7,14 @@ import { formatMinuteOfDay } from '@/lib/dates';
 import type { EventMode } from '@/lib/slots';
 import { listTimeZones, resolveViewerTimeZone } from '@/lib/timezone';
 import {
+  DEFAULT_EMAIL_PROMPT,
   leaderPasswordProblem,
-  looksLikeEmail,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
+  normalizeEmailPrompt,
 } from '@/lib/identity';
 import CreationCalendar from './CreationCalendar';
+import EmailRequirementField from './EmailRequirementField';
 import ShareDialog from './ShareDialog';
 import StarBanner from './StarBanner';
 
@@ -53,7 +55,6 @@ export default function CreateEventForm() {
 
   const [title, setTitle] = useState('');
   const [leaderName, setLeaderName] = useState('');
-  const [leaderEmail, setLeaderEmail] = useState('');
   const [leaderPassword, setLeaderPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [mode, setMode] = useState<EventMode>('date_time');
@@ -63,6 +64,8 @@ export default function CreateEventForm() {
   const [slotMinutes, setSlotMinutes] = useState<number>(15);
   const [timezone, setTimezone] = useState(() => resolveViewerTimeZone());
   const [emailRequired, setEmailRequired] = useState(false);
+  // Kept while the box is unticked, so ticking it again brings the text back.
+  const [emailPrompt, setEmailPrompt] = useState(DEFAULT_EMAIL_PROMPT);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<{ slug: string; url: string } | null>(null);
@@ -100,17 +103,8 @@ export default function CreateEventForm() {
       return;
     }
     const organiser = leaderName.trim();
-    const organiserEmail = leaderEmail.trim();
     if (!organiser) {
-      setError('Enter your name so everyone knows who is organising.');
-      return;
-    }
-    if (!organiserEmail) {
-      setError('Enter your email address.');
-      return;
-    }
-    if (!looksLikeEmail(organiserEmail)) {
-      setError('That does not look like an email address.');
+      setError('Enter your name so everyone knows who the event planner is.');
       return;
     }
     // Not trimmed: whatever was typed is the secret, and signin compares it as
@@ -141,7 +135,6 @@ export default function CreateEventForm() {
         body: JSON.stringify({
           title: title.trim(),
           leaderName: organiser,
-          leaderEmail: organiserEmail,
           leaderPassword,
           mode,
           dates,
@@ -149,6 +142,9 @@ export default function CreateEventForm() {
           // whether a respondent is allowed to leave the box empty.
           collectEmail: true,
           emailRequired,
+          // Null for the untouched default, so the event follows the app's
+          // wording rather than a frozen copy of it.
+          ...(emailRequired ? { emailPrompt: normalizeEmailPrompt(emailPrompt) } : {}),
           ...(mode === 'date_time' ? { timezone, startMinute, endMinute, slotMinutes } : {}),
         }),
       });
@@ -172,6 +168,14 @@ export default function CreateEventForm() {
 
   return (
     <>
+      {/*
+        Two parts. Everything above the "Optional" divider has to be answered
+        (or already is, by a default) before the event can exist; everything
+        below it can be left exactly as it is. Mode, the time window and the
+        timezone stay up top: the create route rejects a timed event without
+        them, and mode has to sit above the calendar because changing it clears
+        the dates picked so far.
+      */}
       <form onSubmit={submit} className="space-y-7">
         <div>
           <label className="label" htmlFor="event-title">
@@ -179,7 +183,7 @@ export default function CreateEventForm() {
           </label>
           <input
             id="event-title"
-            className="field"
+            className="field min-h-11"
             value={title}
             onChange={(event) => {
               setTitle(event.target.value);
@@ -196,40 +200,22 @@ export default function CreateEventForm() {
           A plain div rather than a fieldset: the group caption is gone, and a
           fieldset without a legend is invalid. Each label carries its own field.
         */}
+        {/* No address for the planner: the app sends no email, and the name
+            and password below are what sign them back in. */}
         <div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label className="label" htmlFor="leader-name">
-                Your name
-              </label>
-              <input
-                id="leader-name"
-                className="field"
-                value={leaderName}
-                onChange={(event) => setLeaderName(event.target.value)}
-                autoComplete="name"
-                maxLength={60}
-                required
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="leader-email">
-                Your email
-              </label>
-              <input
-                id="leader-email"
-                className="field"
-                // type=email brings up the @ keyboard on phones and lets the
-                // browser offer a saved address.
-                type="email"
-                inputMode="email"
-                value={leaderEmail}
-                onChange={(event) => setLeaderEmail(event.target.value)}
-                autoComplete="email"
-                maxLength={254}
-                required
-              />
-            </div>
+          <div>
+            <label className="label" htmlFor="leader-name">
+              Your name
+            </label>
+            <input
+              id="leader-name"
+              className="field min-h-11"
+              value={leaderName}
+              onChange={(event) => setLeaderName(event.target.value)}
+              autoComplete="name"
+              maxLength={60}
+              required
+            />
           </div>
           <div className="mt-3">
             <div className="mb-1 flex items-baseline justify-between gap-2">
@@ -238,10 +224,12 @@ export default function CreateEventForm() {
               </label>
               {/* Nothing in the app can reset this one, so a typo is permanent.
                   A reveal catches every mistyping; a confirm field only catches
-                  the ones you would not repeat, and fights password managers. */}
+                  the ones you would not repeat, and fights password managers.
+                  The hit area is thumb-sized around a word-sized link; the
+                  negative margins hand the extra height back to the row. */}
               <button
                 type="button"
-                className="btn-link"
+                className="btn-link -my-3 -mr-2 inline-flex min-h-11 min-w-11 items-center justify-center px-2"
                 onClick={() => setShowPassword((shown) => !shown)}
               >
                 {showPassword ? 'Hide' : 'Show'}
@@ -249,7 +237,7 @@ export default function CreateEventForm() {
             </div>
             <input
               id="leader-password"
-              className="field"
+              className="field min-h-11"
               type={showPassword ? 'text' : 'password'}
               value={leaderPassword}
               onChange={(event) => setLeaderPassword(event.target.value)}
@@ -261,8 +249,8 @@ export default function CreateEventForm() {
               required
             />
             <p className="hint mt-1">
-              At least {MIN_PASSWORD_LENGTH} characters. You need it to sign back in as the group
-              leader on another device.
+              At least {MIN_PASSWORD_LENGTH} characters. You need it to sign back in as the event
+              planner on another device.
             </p>
           </div>
         </div>
@@ -335,7 +323,7 @@ export default function CreateEventForm() {
                   </label>
                   <select
                     id="start-minute"
-                    className="field num"
+                    className="field num min-h-11"
                     value={startMinute}
                     onChange={(event) => setStartMinute(Number(event.target.value))}
                   >
@@ -352,7 +340,7 @@ export default function CreateEventForm() {
                   </label>
                   <select
                     id="end-minute"
-                    className="field num"
+                    className="field num min-h-11"
                     value={endMinute}
                     onChange={(event) => setEndMinute(Number(event.target.value))}
                   >
@@ -367,12 +355,14 @@ export default function CreateEventForm() {
 
               <div className="mt-3">
                 <span className="hint mb-1 block">Granularity</span>
-                <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
+                {/* Full width on a phone, three equal thumb-sized segments;
+                    back to a compact inline control once there is a pointer. */}
+                <div className="flex w-full rounded-lg border border-line bg-surface p-0.5 sm:inline-flex sm:w-auto">
                   {GRANULARITIES.map((value) => (
                     <label
                       key={value}
                       className={[
-                        'num flex min-h-10 cursor-pointer items-center rounded-md px-3 text-[0.8125rem]',
+                        'num flex min-h-11 flex-1 cursor-pointer items-center justify-center rounded-md px-3 text-[0.8125rem] sm:min-h-10 sm:flex-none',
                         slotMinutes === value ? 'bg-ink text-paper' : 'text-ink hover:bg-ramp-1',
                       ].join(' ')}
                     >
@@ -397,7 +387,7 @@ export default function CreateEventForm() {
               </label>
               <select
                 id="timezone"
-                className="field"
+                className="field min-h-11"
                 value={timezone}
                 onChange={(event) => setTimezone(event.target.value)}
               >
@@ -413,24 +403,23 @@ export default function CreateEventForm() {
           </>
         ) : null}
 
-        <fieldset>
-          <legend className="label">Email addresses</legend>
-          <div className="rounded-lg border border-line bg-surface px-3">
-            <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[0.9375rem]">
-              <input
-                type="checkbox"
-                className="size-4 shrink-0 cursor-pointer accent-ink"
-                checked={emailRequired}
-                onChange={(event) => setEmailRequired(event.target.checked)}
-              />
-              Require an email address
-            </label>
+        {/* Nothing below this line blocks creation. It stays open rather than
+            folded away: one field is cheaper to read than a toggle is to find. */}
+        <section aria-labelledby="optional-heading" className="space-y-7">
+          <div className="flex items-center gap-3">
+            <h2 id="optional-heading" className="section-title shrink-0 text-muted">
+              Optional
+            </h2>
+            <span aria-hidden="true" className="h-px flex-1 bg-line" />
           </div>
-          <p className="hint mt-1">
-            Respondents always get an email box on the sign-in card. Leave this off and they can skip
-            it — your own address above is separate.
-          </p>
-        </fieldset>
+
+          <EmailRequirementField
+            required={emailRequired}
+            onRequiredChange={setEmailRequired}
+            prompt={emailPrompt}
+            onPromptChange={setEmailPrompt}
+          />
+        </section>
 
         {error ? (
           <p className="rounded-lg border border-[#f0d4dc] bg-[#fdf3f5] px-3 py-2 text-[0.875rem] text-danger" role="alert">
@@ -442,9 +431,13 @@ export default function CreateEventForm() {
             first thing between someone and the form; down here it is the last
             thing they read before committing, built as the button's twin so the
             two read as one stack rather than a banner that happens to be near. */}
-        <StarBanner className="w-full sm:hidden" buttonSized />
+        <StarBanner className="min-h-11 w-full sm:hidden" buttonSized />
 
-        <button type="submit" className="btn btn-primary w-full sm:w-auto" disabled={submitting}>
+        <button
+          type="submit"
+          className="btn btn-primary min-h-11 w-full sm:w-auto"
+          disabled={submitting}
+        >
           {created ? 'Event created' : submitting ? 'Creating…' : 'Create event'}
         </button>
       </form>

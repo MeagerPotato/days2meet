@@ -18,10 +18,10 @@ import { isValidTimeZone } from '@/lib/timezone';
 import { jsonError, readJsonBody, serverError } from '@/lib/http';
 import { recordCreationAttempt } from '@/lib/rate-limit';
 import {
+  emailPromptProblem,
   leaderPasswordProblem,
-  looksLikeEmail,
-  MAX_EMAIL_LENGTH,
   MAX_NAME_LENGTH,
+  normalizeEmailPrompt,
   normalizeName,
 } from '@/lib/identity';
 
@@ -38,19 +38,15 @@ export async function POST(request: Request) {
     if (title.length > 120) return jsonError('Event names are limited to 120 characters.');
 
     const leaderName = normalizeName(body.leaderName);
-    if (!leaderName) return jsonError('Enter your name so everyone knows who is organising.');
+    if (!leaderName) return jsonError('Enter your name so everyone knows who the event planner is.');
     if (leaderName.length > MAX_NAME_LENGTH) {
       return jsonError(`Names are limited to ${MAX_NAME_LENGTH} characters.`);
     }
 
-    // The leader's address is asked for on every event. `emailRequired` below is
-    // a separate question about the people they invite.
-    const leaderEmail = typeof body.leaderEmail === 'string' ? body.leaderEmail.trim() : '';
-    if (!leaderEmail) return jsonError('Enter your email address.');
-    if (leaderEmail.length > MAX_EMAIL_LENGTH) {
-      return jsonError(`Email addresses are limited to ${MAX_EMAIL_LENGTH} characters.`);
-    }
-    if (!looksLikeEmail(leaderEmail)) return jsonError('That does not look like an email address.');
+    // The planner is not asked for an address: the app sends no email, and
+    // their name and password are what sign them back in. A `leaderEmail` from
+    // an older client is ignored rather than rejected, so it cannot fail on it,
+    // and it is never stored.
 
     // The form checks the same rule, but this is the control: the route is
     // reachable without it.
@@ -84,6 +80,13 @@ export async function POST(request: Request) {
     // so an older client cannot fail on it.
     const collectEmail = true;
     const emailRequired = rawEmailRequired === true;
+
+    // What respondents read over the email box. Only meaningful while the
+    // address is required, so it is validated always but stored only then;
+    // null (including the untouched default) means "use the default wording".
+    const promptProblem = emailPromptProblem(body.emailPrompt);
+    if (promptProblem) return jsonError(promptProblem);
+    const emailPrompt = emailRequired ? normalizeEmailPrompt(body.emailPrompt) : null;
 
     let timezone: string | null = null;
     let startMinute: number | null = null;
@@ -172,6 +175,7 @@ export async function POST(request: Request) {
           slot_minutes: slotMinutes,
           collect_email: collectEmail,
           email_required: emailRequired,
+          email_prompt: emailPrompt,
           admin_token_hash: adminTokenHash,
         })
         .select('id, slug')
@@ -198,12 +202,7 @@ export async function POST(request: Request) {
     // controls answer to nobody. Everything that has to succeed before the slug
     // escapes therefore sits inside this block, cookies included.
     try {
-      const leaderId = await createLeaderParticipant(
-        created.id,
-        leaderName,
-        leaderEmail,
-        leaderPasswordHash,
-      );
+      const leaderId = await createLeaderParticipant(created.id, leaderName, leaderPasswordHash);
       await claimLeader(created.id, leaderId);
 
       const store = await cookies();
@@ -211,8 +210,7 @@ export async function POST(request: Request) {
       store.set(adminCookieName(created.slug), adminToken, cookieOptions());
       // The same session signin issues, so the creator lands on their event
       // already signed in instead of being asked for what they just typed. They
-      // chose the password a moment ago, so the session is verified and shows
-      // them their own address back.
+      // chose the password a moment ago, so the session is verified.
       store.set(cookieName(created.slug), issueCookieValue(leaderId, true), cookieOptions());
     } catch (failure) {
       await deleteEvent(created.id).catch((cleanup) => {

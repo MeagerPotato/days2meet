@@ -200,10 +200,12 @@ export function rectangleSlots(g: EventGeometry, a: Cell, b: Cell): number[] {
   return out;
 }
 
-/* Shared pixel geometry, so the personal and group grids line up exactly. */
+/* Shared pixel geometry, so the personal and group grids line up exactly.
+   Sized for the 12px Inter labels: the gutter holds "10:30 AM" (57px) inside
+   its 6px padding, and a column holds a 14px "12/31" (41.5px) inside its 4px. */
 
-export const GUTTER_WIDTH = 62;
-export const MIN_COLUMN_WIDTH = 44;
+export const GUTTER_WIDTH = 64;
+export const MIN_COLUMN_WIDTH = 46;
 export const DAY_CELL_MIN_HEIGHT = 46;
 
 export function rowHeightFor(slotMinutes: number): number {

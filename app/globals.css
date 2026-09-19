@@ -5,6 +5,9 @@
   --color-ink: #14161a;
   --color-line: #e3e5ea;
   --color-muted: #6b7280;
+  /* Grid labels (weekdays, clock times): darker than muted, 7.4:1 on paper,
+     because they are small and people read them constantly. */
+  --color-label: #4b5563;
   --color-surface: #ffffff;
 
   /* Availability ramp — one teal family, stepped so counts stay legible. */
@@ -24,7 +27,7 @@
 
   --font-display: var(--font-display-face), ui-sans-serif, system-ui, sans-serif;
   --font-sans: var(--font-ui-face), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-mono-face), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-num: var(--font-num-face), ui-sans-serif, system-ui, sans-serif;
 }
 
 /* The literal token names from the design direction, for anything reading them raw. */
@@ -98,6 +101,13 @@
 
   .field:hover:not(:disabled) {
     border-color: #c9ccd4;
+  }
+
+  /* A full finger-height target wherever the 16px rule below applies. */
+  @media (width < 40rem), (pointer: coarse) {
+    .field {
+      min-height: 2.75rem;
+    }
   }
 
   .label {
@@ -201,10 +211,15 @@
     white-space: nowrap;
   }
 
+  /* Every figure: Inter with tabular figures, so digits share one width and
+     columns of times and counts line up. `normal` stops the body's 'cv01',
+     'cv03' (Geist tweaks) from being inherited: in Inter those tags name the
+     alternate 1 and open 6, so whether they took effect would depend on which
+     Inter build is served, not on what was signed off. */
   .num {
-    font-family: var(--font-mono);
+    font-family: var(--font-num);
     font-variant-numeric: tabular-nums;
-    font-feature-settings: 'tnum';
+    font-feature-settings: normal;
   }
 
   .section-title {
@@ -224,7 +239,9 @@
    can say, so a `text-[0.8125rem]` at the call site would win. An unlayered rule
    outranks every layer regardless of specificity, which settles it without
    `!important` and without chasing utility classes through the components. */
-@media (width < 40rem) {
+@media (width < 40rem), (pointer: coarse) {
+  /* `pointer: coarse` as well as the width: a phone held sideways is wider than
+     40rem and zooms on focus all the same. */
   input,
   select,
   textarea {
@@ -233,17 +250,99 @@
 }
 
 @layer utilities {
-  /* Painting must not select text or trigger the browser's touch scrolling. */
-  .no-touch-pan {
-    touch-action: none;
+  /* Every grid a finger can paint. `manipulation` keeps native panning and
+     pinch-zoom — a swipe over the grid has to scroll the page — and only drops
+     double-tap-to-zoom, which two quick taps on neighbouring cells would
+     otherwise trigger. The hold-to-paint gesture (usePaintGesture) cancels the
+     scroll itself once a paint has engaged. The rest stops a long press from
+     selecting text, opening the iOS callout or flashing the tap highlight. */
+  .paint-surface {
+    touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* The cell a press-and-hold landed on, the moment painting engages. On iOS
+     there is no vibration API, so this is the only signal the hold worked. */
+  .paint-anchor {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid var(--color-ink);
+    outline-offset: -1px;
+    animation: paint-pop 180ms ease-out;
+  }
+
+  /* Time-grid rows. The inline custom properties carry both heights so the
+     personal and group grids, which share them, always line up. Rows grow a
+     little under a finger, where a 20px target is too easy to miss. */
+  .slot-row {
+    height: var(--slot-h);
+  }
+
+  @media (pointer: coarse) {
+    .slot-row {
+      height: var(--slot-h-touch, var(--slot-h));
+    }
+  }
+
+  /* Column geometry for the time grid, set inline as wide/compact pairs. On a
+     phone the gutter and the minimum column narrow so a full week fits 360px
+     without scrolling sideways; past that, the grid scrolls under a sticky time
+     column and a sticky day header. */
+  .time-grid {
+    --gutter: var(--gutter-wide);
+    --col-min: var(--col-min-wide);
+  }
+
+  @media (width < 40rem) {
+    .time-grid {
+      --gutter: var(--gutter-compact);
+      --col-min: var(--col-min-compact);
+    }
+
+    /* Where the browser can measure the grid's own width, columns give up a
+       few pixels, down to a floor, before the grid resorts to scrolling
+       sideways — so 8 or 9 days still fit a 390px phone. `--cols` is set
+       inline. Nothing positioned `fixed` may live inside this container. */
+    @supports (width: 1cqw) {
+      .time-grid {
+        container-type: inline-size;
+        --col-min: clamp(
+          var(--col-min-floor),
+          (100cqw - var(--gutter)) / var(--cols),
+          var(--col-min-compact)
+        );
+      }
+    }
   }
 
   .scroll-x {
     overflow-x: auto;
     overscroll-behavior-x: contain;
+  }
+
+  /* The sticky day header scrolls sideways with the grid under it, but has no
+     scrollbar of its own. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes paint-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
   }
 }
 

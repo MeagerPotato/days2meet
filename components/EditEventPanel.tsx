@@ -4,12 +4,14 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { formatDateSpan, formatMinuteOfDay } from '@/lib/dates';
+import { DEFAULT_EMAIL_PROMPT, normalizeEmailPrompt } from '@/lib/identity';
 import { remapSlots, type EventGeometry } from '@/lib/slots';
 import type { EventPayload, ParticipantPayload } from '@/lib/types';
 
 import ConfirmDialog from './ConfirmDialog';
 import CopyEventLinkButton from './CopyEventLinkButton';
 import CreationCalendar from './CreationCalendar';
+import EmailRequirementField from './EmailRequirementField';
 
 const GRANULARITIES = [15, 30, 60] as const;
 const NOTICE_MS = 5000;
@@ -39,6 +41,8 @@ interface Saved {
   endMinute: number | null;
   slotMinutes: number;
   emailRequired: boolean;
+  /** As stored: null means the default wording. */
+  emailPrompt: string | null;
   responsesClosed: boolean;
 }
 
@@ -56,6 +60,7 @@ export default function EditEventPanel({ event }: Props) {
     endMinute: event.endMinute,
     slotMinutes: event.slotMinutes,
     emailRequired: event.emailRequired,
+    emailPrompt: event.emailPrompt,
     responsesClosed: event.responsesClosed,
   }));
 
@@ -70,6 +75,8 @@ export default function EditEventPanel({ event }: Props) {
   const [endMinute, setEndMinute] = useState(event.endMinute ?? 1020);
   const [slotMinutes, setSlotMinutes] = useState(event.slotMinutes);
   const [emailRequired, setEmailRequired] = useState(event.emailRequired);
+  // Prefilled with the wording respondents see today, stored or default.
+  const [emailPrompt, setEmailPrompt] = useState(event.emailPrompt ?? DEFAULT_EMAIL_PROMPT);
   const [responsesClosed, setResponsesClosed] = useState(event.responsesClosed);
 
   // Remounting the calendar is what puts it back to the saved span; it owns its
@@ -129,11 +136,16 @@ export default function EditEventPanel({ event }: Props) {
     (pendingGeometry.startMinute !== saved.startMinute ||
       pendingGeometry.endMinute !== saved.endMinute ||
       slotMinutes !== saved.slotMinutes);
+  // Only while the box is ticked: a message edited and then hidden again by
+  // unticking is not something the planner can see, so it is not saved.
+  const pendingPrompt = normalizeEmailPrompt(emailPrompt);
+  const promptChanged = emailRequired && pendingPrompt !== saved.emailPrompt;
   const changed =
     title.trim() !== saved.title ||
     datesChanged ||
     windowChanged ||
     emailRequired !== saved.emailRequired ||
+    promptChanged ||
     responsesClosed !== saved.responsesClosed;
 
   const valid = title.trim().length > 0 && dates.length > 0 && (!timed || endMinute > startMinute);
@@ -194,6 +206,7 @@ export default function EditEventPanel({ event }: Props) {
       endMinute: timed ? pendingGeometry.endMinute : saved.endMinute,
       slotMinutes: timed ? slotMinutes : saved.slotMinutes,
       emailRequired,
+      emailPrompt: promptChanged ? pendingPrompt : saved.emailPrompt,
       responsesClosed,
     };
 
@@ -208,6 +221,7 @@ export default function EditEventPanel({ event }: Props) {
       if (next.slotMinutes !== saved.slotMinutes) body.slotMinutes = next.slotMinutes;
     }
     if (next.emailRequired !== saved.emailRequired) body.emailRequired = next.emailRequired;
+    if (next.emailPrompt !== saved.emailPrompt) body.emailPrompt = next.emailPrompt;
     if (next.responsesClosed !== saved.responsesClosed) body.responsesClosed = next.responsesClosed;
 
     const from = savedGeometry;
@@ -313,7 +327,7 @@ export default function EditEventPanel({ event }: Props) {
               {sameDates(dates, saved.dates) ? null : (
                 <button
                   type="button"
-                  className="btn-link shrink-0"
+                  className="btn-link -my-2 shrink-0 py-2 sm:my-0 sm:py-0"
                   onClick={() => setDatesKey((key) => key + 1)}
                 >
                   Undo date changes
@@ -379,7 +393,7 @@ export default function EditEventPanel({ event }: Props) {
                   <label
                     key={value}
                     className={[
-                      'num flex min-h-10 cursor-pointer items-center rounded-md px-3 text-[0.8125rem]',
+                      'num flex min-h-11 cursor-pointer items-center rounded-md px-3 text-[0.8125rem] sm:min-h-10',
                       slotMinutes === value ? 'bg-ink text-paper' : 'text-ink hover:bg-ramp-1',
                     ].join(' ')}
                   >
@@ -406,24 +420,12 @@ export default function EditEventPanel({ event }: Props) {
           </fieldset>
         ) : null}
 
-        <fieldset>
-          <legend className="label">Email addresses</legend>
-          <div className="rounded-lg border border-line bg-surface px-3">
-            <label className="flex min-h-11 cursor-pointer items-center gap-2.5 text-[0.9375rem]">
-              <input
-                type="checkbox"
-                className="size-4 shrink-0 cursor-pointer accent-ink"
-                checked={emailRequired}
-                onChange={(field) => setEmailRequired(field.target.checked)}
-              />
-              Require an email address
-            </label>
-          </div>
-          <p className="hint mt-1">
-            Respondents are asked for an address either way. This decides whether they can leave the
-            box empty.
-          </p>
-        </fieldset>
+        <EmailRequirementField
+          required={emailRequired}
+          onRequiredChange={setEmailRequired}
+          prompt={emailPrompt}
+          onPromptChange={setEmailPrompt}
+        />
 
         <fieldset>
           <legend className="label">Responses</legend>
