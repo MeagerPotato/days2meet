@@ -349,41 +349,37 @@ export default function EditEventPanel({ event }: Props) {
         {timed ? (
           <fieldset>
             <legend className="label">Time window</legend>
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-[8.5rem] flex-1">
-                <label className="hint mb-1 block" htmlFor="start-minute">
-                  No earlier than
-                </label>
-                <select
-                  id="start-minute"
-                  className="field num min-h-11"
-                  value={startMinute}
-                  onChange={(field) => setStartMinute(Number(field.target.value))}
-                >
-                  {START_OPTIONS.map((minute) => (
-                    <option key={minute} value={minute}>
-                      {formatMinuteOfDay(minute)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="min-w-[8.5rem] flex-1">
-                <label className="hint mb-1 block" htmlFor="end-minute">
-                  No later than
-                </label>
-                <select
-                  id="end-minute"
-                  className="field num min-h-11"
-                  value={endMinute}
-                  onChange={(field) => setEndMinute(Number(field.target.value))}
-                >
-                  {END_OPTIONS.map((minute) => (
-                    <option key={minute} value={minute}>
-                      {minute === 1440 ? '12:00 AM (midnight)' : formatMinuteOfDay(minute)}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Same "9:00 AM to 5:00 PM" sentence as the create form. */}
+            <div className="flex items-center gap-2 sm:gap-3">
+              <select
+                id="start-minute"
+                aria-label="Start time"
+                className="field num min-h-11 min-w-0 flex-1"
+                value={startMinute}
+                onChange={(field) => setStartMinute(Number(field.target.value))}
+              >
+                {START_OPTIONS.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {formatMinuteOfDay(minute)}
+                  </option>
+                ))}
+              </select>
+              <span aria-hidden="true" className="shrink-0 text-[0.9375rem] text-muted">
+                to
+              </span>
+              <select
+                id="end-minute"
+                aria-label="End time"
+                className="field num min-h-11 min-w-0 flex-1"
+                value={endMinute}
+                onChange={(field) => setEndMinute(Number(field.target.value))}
+              >
+                {END_OPTIONS.map((minute) => (
+                  <option key={minute} value={minute}>
+                    {minute === 1440 ? '12:00 AM (midnight)' : formatMinuteOfDay(minute)}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="mt-3">
