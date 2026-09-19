@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { shareOrigin } from '@/lib/site';
+
 export default function CopyLinkButton() {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -14,7 +16,8 @@ export default function CopyLinkButton() {
   );
 
   const copy = async () => {
-    const url = window.location.href;
+    const { pathname, search, hash } = window.location;
+    const url = `${shareOrigin()}${pathname}${search}${hash}`;
     try {
       await navigator.clipboard.writeText(url);
     } catch {

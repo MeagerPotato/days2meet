@@ -1,8 +1,14 @@
+import type { Metadata } from 'next';
+
 import CreateEventForm from '@/components/CreateEventForm';
 import StarBanner from '@/components/StarBanner';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+// The home page is the one indexable page, and both hosts serve it; this names
+// the canonical one. Event pages are noindex (next.config.ts), so they get none.
+export const metadata: Metadata = { alternates: { canonical: '/' } };
 
 export default function CreatePage() {
   return (

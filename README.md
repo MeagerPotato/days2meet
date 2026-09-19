@@ -10,7 +10,8 @@ A group availability poll — the same idea as When2meet — with one addition t
   timezone, no grid rows. This is the mode for far-off planning where hours are meaningless:
   winter break, a trip window, "which weekend in October".
 
-Live at **https://days2meet.vercel.app**.
+Live at **https://days2meet.allenkh.com**. Links to the launch address, days2meet.vercel.app,
+keep working and forward there.
 
 ## How it works
 

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Bricolage_Grotesque, Geist, Inter } from 'next/font/google';
 
 import SiteAnalytics from '@/components/SiteAnalytics';
+import { CANONICAL_ORIGIN } from '@/lib/site';
 
 import './globals.css';
 
@@ -27,6 +28,7 @@ const numerals = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(CANONICAL_ORIGIN),
   title: 'days2meet',
   description: 'Find a time, or just find a week. Group availability without the time grid when you do not need one.',
 };

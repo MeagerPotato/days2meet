@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { formatMinuteOfDay } from '@/lib/dates';
+import { shareOrigin } from '@/lib/site';
 import type { EventMode } from '@/lib/slots';
 import { listTimeZones, resolveViewerTimeZone } from '@/lib/timezone';
 import {
@@ -159,7 +160,7 @@ export default function CreateEventForm() {
       }
       // Left submitting: the event exists from here on, so the form must never
       // run again. The dialog is the only way forward.
-      setCreated({ slug: payload.slug, url: `${window.location.origin}/e/${payload.slug}` });
+      setCreated({ slug: payload.slug, url: `${shareOrigin()}/e/${payload.slug}` });
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
       setSubmitting(false);
