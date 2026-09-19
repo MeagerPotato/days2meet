@@ -58,11 +58,11 @@ export default function CreateEventForm() {
   const [leaderName, setLeaderName] = useState('');
   const [leaderPassword, setLeaderPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [mode, setMode] = useState<EventMode>('date_time');
+  const [mode, setMode] = useState<EventMode>('date_only');
   const [dates, setDates] = useState<string[]>([]);
   const [startMinute, setStartMinute] = useState(540); // 9:00 AM
   const [endMinute, setEndMinute] = useState(1020); // 5:00 PM
-  const [slotMinutes, setSlotMinutes] = useState<number>(15);
+  const [slotMinutes, setSlotMinutes] = useState<number>(30);
   const [timezone, setTimezone] = useState(() => resolveViewerTimeZone());
   const [emailRequired, setEmailRequired] = useState(false);
   // Kept while the box is unticked, so ticking it again brings the text back.
@@ -267,13 +267,13 @@ export default function CreateEventForm() {
               className={[
                 'pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg border border-[#8fd4ae] bg-[#d9f2e4] shadow-sm',
                 'transition-transform duration-200 ease-out motion-reduce:transition-none',
-                mode === 'date_only' ? 'translate-x-full' : 'translate-x-0',
+                mode === 'date_time' ? 'translate-x-full' : 'translate-x-0',
               ].join(' ')}
             />
             {(
               [
-                { value: 'date_time' as const, title: 'Dates & times' },
                 { value: 'date_only' as const, title: 'Dates only' },
+                { value: 'date_time' as const, title: 'Dates & times' },
               ] satisfies { value: EventMode; title: string }[]
             ).map((option) => (
               <label
