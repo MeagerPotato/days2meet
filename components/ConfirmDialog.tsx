@@ -68,7 +68,10 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/30 p-4 sm:items-center"
+      // A bottom sheet on a phone, with the padding clearing the home
+      // indicator. The panel scrolls inside itself if it outgrows a short
+      // landscape screen, since the page behind it is locked.
+      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/30 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onCancel();
       }}
@@ -79,7 +82,7 @@ export default function ConfirmDialog({
         aria-modal="true"
         aria-labelledby="confirm-title"
         aria-describedby="confirm-body"
-        className="panel w-full max-w-sm p-4 shadow-lg"
+        className="panel max-h-full w-full max-w-sm overflow-y-auto overscroll-contain p-4 shadow-lg"
       >
         <h2 id="confirm-title" className="section-title">
           {title}

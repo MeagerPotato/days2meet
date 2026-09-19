@@ -43,10 +43,10 @@ export default async function EditEventPage({ params }: { params: Promise<{ slug
     return (
       <main className="mx-auto w-full max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
         <div className="panel p-4">
-          <h1 className="section-title">Only the group leader can edit this days2meet</h1>
+          <h1 className="section-title">Only the Event Planner can edit this days2meet</h1>
           <p className="hint mt-1.5">
-            The person who created it can change the dates, the times and whether responses are
-            still open.
+            The event planner can change the dates, the times and whether responses are still
+            open. If that is you, sign in on the event page with your name and password first.
           </p>
           <Link href={`/e/${slug}`} className="btn btn-edit mt-4 min-h-11">
             Back to the days2meet

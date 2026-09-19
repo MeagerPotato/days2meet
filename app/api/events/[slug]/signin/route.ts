@@ -77,9 +77,10 @@ export async function POST(request: Request, context: { params: Promise<{ slug: 
     // submitted value is dropped here and cannot reach an insert or an update.
     const email = event.collect_email ? submitted : '';
     if (!name && !email) return jsonError('Enter your name or your email address.');
-    if (event.collect_email && event.email_required && !email) {
-      return jsonError('Enter your email address.');
-    }
+    // A required address is asked of respondents only. Whether this is the
+    // event planner is not known until the name has been looked up, so the
+    // check itself waits below the lookup.
+    const emailMissing = event.collect_email && event.email_required && !email;
 
     // Metered before any identity lookup, so a caller who has already burned
     // through failed guesses cannot reach a scrypt at all.
@@ -109,6 +110,14 @@ export async function POST(request: Request, context: { params: Promise<{ slug: 
         return jsonError('No one has answered with that email yet. Enter your name to start.');
       }
       existing = await findParticipantByName(event.id, name);
+    }
+
+    // Everyone but the planner. The planner's row is made without an address
+    // and signs back in with its name and password, so "required" there would
+    // lock the event's own planner out of it. The password check further down
+    // still applies to their row like any other.
+    if (emailMissing && !(await isPlannerSignin(event, existing))) {
+      return jsonError('Enter your email address.');
     }
 
     if (!existing) {
@@ -260,6 +269,27 @@ async function respondSignedIn(
   const store = await cookies();
   store.set(cookieName(event.slug), issueCookieValue(participant.id, verified), cookieOptions());
   return NextResponse.json({ participant, passwordIgnored });
+}
+
+/**
+ * Whether this signin is the event planner's, for the one rule they are exempt
+ * from: a required email address.
+ *
+ * Normally that is simply "the row being signed into is the leader's". An older
+ * event can still have no leader yet; its creator's first signin claims the role
+ * (see `claimLeadership`) on the strength of the admin cookie, so the same proof
+ * exempts them here. That path costs a scrypt verify, and is only reached when
+ * the address is missing and the event has no leader at all.
+ */
+async function isPlannerSignin(
+  event: EventRow,
+  existing: { id: string } | null,
+): Promise<boolean> {
+  if (event.leader_participant_id !== null) {
+    return existing !== null && existing.id === event.leader_participant_id;
+  }
+  const store = await cookies();
+  return hasValidAdminToken(event.id, store.get(adminCookieName(event.slug))?.value);
 }
 
 /**

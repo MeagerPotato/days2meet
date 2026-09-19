@@ -33,6 +33,11 @@ export interface EventPayload {
    */
   collectEmail: boolean;
   emailRequired: boolean;
+  /**
+   * The event planner's own wording for the email box, shown when
+   * `emailRequired` is on. Null means "use DEFAULT_EMAIL_PROMPT" (lib/identity.ts).
+   */
+  emailPrompt: string | null;
   /** Closed events still show their results; they just take no new answers. */
   responsesClosed: boolean;
   /** Whether the viewer's own session is the leader's. Gates the leader UI. */

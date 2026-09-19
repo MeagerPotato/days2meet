@@ -13,7 +13,7 @@ export default function Legend({ total }: { total: number }) {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="hint shrink-0">0</span>
+      <span className="hint num shrink-0">0</span>
       <ul className="flex flex-1 gap-0.5">
         {marks.map((count) => (
           <li key={count} className="flex-1">

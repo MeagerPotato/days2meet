@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { dateRange, formatMonthTitle, formatWeekdayMonthDay, toKey, toUTCms } from '@/lib/dates';
 import type { EventMode } from '@/lib/slots';
-import { useScrollLock } from './useScrollLock';
+import { usePaintGesture } from './usePaintGesture';
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
@@ -15,6 +15,10 @@ function monthCells(year: number, month: number): (string | null)[] {
   for (let day = 1; day <= dayCount; day++) cells.push(toKey(new Date(year, month, day)));
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
+}
+
+function dateOfElement(element: Element | null): string | null {
+  return element?.closest<HTMLElement>('[data-date]')?.dataset.date ?? null;
 }
 
 function addMonths(year: number, month: number, delta: number): { year: number; month: number } {
@@ -36,7 +40,8 @@ interface Props {
 /**
  * Date picker for the create form. Two months at a time.
  *
- * `date_time` mode multi-selects individual dates, click or drag.
+ * `date_time` mode multi-selects individual dates: click or drag with a mouse;
+ * on a phone, tap, or press and hold then drag (a plain swipe scrolls).
  * `date_only` mode picks a start and an end, then lets you punch holes in the
  * range — the fast path for "the whole of winter break, minus the 25th".
  */
@@ -56,13 +61,12 @@ export default function CreationCalendar({ mode, onChange, initialDates }: Props
 
   // date_time state
   const [picked, setPicked] = useState<Set<string>>(() => new Set(mode === 'date_time' ? seed : []));
-  const paintRef = useRef<{ active: boolean; adding: boolean }>({ active: false, adding: true });
-  // The ref answers the move handler synchronously; this is the same fact in a
-  // form a render can see, which is what an effect needs to fire on.
-  const [painting, setPainting] = useState<{ touch: boolean } | null>(null);
-
-  // Mouse drags stay unlocked so wheel scrolling still works on desktop.
-  useScrollLock(painting?.touch === true);
+  const pickedRef = useRef(picked);
+  pickedRef.current = picked;
+  const paintRef = useRef<{ adding: boolean }>({ adding: true });
+  /** The touch anchor, lit while a finger paints. */
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
 
   // date_only state
   // A saved date list is a span with holes punched in it, which is exactly the
@@ -118,49 +122,21 @@ export default function CreationCalendar({ mode, onChange, initialDates }: Props
     });
   }, []);
 
-  const dateAtPoint = (clientX: number, clientY: number): string | null => {
-    const element = document.elementFromPoint(clientX, clientY);
-    const cell = element?.closest('[data-date]') as HTMLElement | null;
-    return cell?.dataset.date ?? null;
-  };
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>, date: string) => {
-    if (mode !== 'date_time') return;
-    event.preventDefault();
-    const adding = !picked.has(date);
-    paintRef.current = { active: true, adding };
-    setPainting({ touch: event.pointerType === 'touch' });
-    try {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    } catch {
-      // Best-effort; the window pointerup listener still ends the paint.
-    }
-    applyPaint(date, adding);
-  };
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
-    if (mode !== 'date_time' || !paintRef.current.active) return;
-    const date = dateAtPoint(event.clientX, event.clientY);
-    if (date) applyPaint(date, paintRef.current.adding);
-  };
-
-  const endPaint = () => {
-    paintRef.current.active = false;
-    setPainting(null);
-  };
-
-  useEffect(() => {
-    const stop = () => {
-      paintRef.current.active = false;
-      setPainting(null);
-    };
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', stop);
-    return () => {
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', stop);
-    };
-  }, []);
+  // Painting applies as it goes, so there is nothing to commit at the end.
+  const paint = usePaintGesture<string>({
+    enabled: mode === 'date_time',
+    surfaceRef,
+    keyOf: dateOfElement,
+    onBegin: (date, pointerType) => {
+      const adding = !pickedRef.current.has(date);
+      paintRef.current = { adding };
+      if (pointerType !== 'mouse') setAnchor(date);
+      applyPaint(date, adding);
+    },
+    onExtend: (date) => applyPaint(date, paintRef.current.adding),
+    onEnd: () => setAnchor(null),
+    onTap: (date) => applyPaint(date, !pickedRef.current.has(date)),
+  });
 
   /* --------------------------------------------------------- date_only clicks */
 
@@ -214,14 +190,22 @@ export default function CreationCalendar({ mode, onChange, initialDates }: Props
     return { chosen: inRange && !isExcluded, inRange, isExcluded, isEdge };
   };
 
+  // Two wordings, and CSS picks the one that matches the pointer: "click" and
+  // "drag" mean something different under a finger, where a drag scrolls.
   const helper =
     mode === 'date_time'
-      ? 'Click or drag to pick the dates you want on the poll.'
+      ? {
+          mouse: 'Click or drag to pick the dates you want on the poll.',
+          touch: 'Tap dates to pick them. To pick a run, press and hold, then drag.',
+        }
       : rangeStart && !rangeEnd
-        ? 'Now click the last date of the range.'
+        ? { mouse: 'Now click the last date of the range.', touch: 'Now tap the last date of the range.' }
         : rangeEnd
-          ? 'Click any date inside the range to leave it out.'
-          : 'Click the first date of the range.';
+          ? {
+              mouse: 'Click any date inside the range to leave it out.',
+              touch: 'Tap any date inside the range to leave it out.',
+            }
+          : { mouse: 'Click the first date of the range.', touch: 'Tap the first date of the range.' };
 
   return (
     <div>
@@ -244,12 +228,17 @@ export default function CreationCalendar({ mode, onChange, initialDates }: Props
             <span aria-hidden="true">→</span>
           </button>
         </div>
-        <p className="hint flex-1 text-right">{helper}</p>
+        <p className="hint flex-1 text-right">
+          <span className="pointer-coarse:hidden">{helper.mouse}</span>
+          <span className="hidden pointer-coarse:inline">{helper.touch}</span>
+        </p>
       </div>
 
       <div
-        className={`grid gap-4 sm:grid-cols-2 ${mode === 'date_time' ? 'no-touch-pan' : ''}`}
-        onPointerUp={endPaint}
+        ref={surfaceRef}
+        className="paint-surface grid gap-4 sm:grid-cols-2"
+        onPointerDown={paint.onPointerDown}
+        onPointerMove={paint.onPointerMove}
       >
         {months.map(({ year, month }) => (
           <div key={`${year}-${month}`}>
@@ -260,7 +249,7 @@ export default function CreationCalendar({ mode, onChange, initialDates }: Props
               {WEEKDAYS.map((day, index) => (
                 <div
                   key={`${day}-${index}`}
-                  className="num text-center text-[0.6875rem] text-muted"
+                  className="num text-center text-[0.75rem] font-medium text-label"
                   aria-hidden="true"
                 >
                   {day}
@@ -279,8 +268,6 @@ export default function CreationCalendar({ mode, onChange, initialDates }: Props
                     data-date={date}
                     aria-pressed={chosen}
                     aria-label={formatWeekdayMonthDay(date)}
-                    onPointerDown={(event) => handlePointerDown(event, date)}
-                    onPointerMove={handlePointerMove}
                     onPointerEnter={() => mode === 'date_only' && setHoverDate(date)}
                     onClick={(event) => {
                       if (mode === 'date_only') handleDateOnlyClick(date);
@@ -301,6 +288,7 @@ export default function CreationCalendar({ mode, onChange, initialDates }: Props
                       isExcluded ? 'line-through text-muted' : '',
                       isEdge && !isExcluded ? 'ring-1 ring-inset ring-ramp-5' : '',
                       isToday && !chosen ? 'ring-1 ring-inset ring-line' : '',
+                      anchor === date ? 'paint-anchor' : '',
                     ].join(' ')}
                   >
                     {Number(date.slice(8, 10))}

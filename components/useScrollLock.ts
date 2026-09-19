@@ -11,12 +11,12 @@ interface Saved {
 }
 
 /**
- * Pins the page while a touch paint drag is in flight.
+ * Pins the page behind a modal, so a swipe on the backdrop cannot scroll the
+ * page out from under the dialog.
  *
- * `touch-action: none` only stops a scroll gesture that starts on the grid. A
- * scroll already in motion — momentum from an earlier swipe, the URL bar
- * collapsing, an ancestor container reacting — keeps sliding content under a
- * stationary finger, and `elementFromPoint` then paints cells nobody touched.
+ * The grids no longer use this. Painting by touch is a press-and-hold, which
+ * only engages once the finger — and so any momentum under it — has been still
+ * for a moment, and from then on usePaintGesture cancels the scroll itself.
  */
 export function useScrollLock(locked: boolean): void {
   const saved = useRef<Saved | null>(null);

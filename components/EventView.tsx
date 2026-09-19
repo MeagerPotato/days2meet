@@ -19,14 +19,13 @@ import CellTooltip, { type TooltipData } from './CellTooltip';
 import CopyLinkButton from './CopyLinkButton';
 import DateOnlyGrid from './DateOnlyGrid';
 import Legend from './Legend';
+import RefreshButton from './RefreshButton';
 import ResultsPanel from './ResultsPanel';
 import Roster from './Roster';
 import SignInCard from './SignInCard';
 import { REPO_URL } from './StarBanner';
 import TimeGrid, { type HoverPayload } from './TimeGrid';
 
-/** Refetch cadence while the tab is visible. */
-const POLL_MS = 5000;
 const SAVE_DEBOUNCE_MS = 400;
 
 interface Props {
@@ -35,6 +34,7 @@ interface Props {
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+type RefreshState = 'idle' | 'refreshing' | 'error';
 
 export default function EventView({ initialEvent, initialMeId }: Props) {
   const [event, setEvent] = useState(initialEvent);
@@ -92,7 +92,7 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
     [event.participants, meId],
   );
 
-  /** My unsaved edits win over the polled copy, so the group panel never lags my own grid. */
+  /** My unsaved edits win over the fetched copy, so the group panel never lags my own grid. */
   const participants: ParticipantLite[] = useMemo(() => {
     if (!meId) return event.participants;
     const mine = [...mySlots].sort((a, b) => a - b);
@@ -135,37 +135,50 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
 
   /* ------------------------------------------------------------- refreshing */
 
+  /*
+    Nothing on this page fetches on a timer or on tab focus. It used to poll
+    every five seconds, and a single tab left open overnight cost thousands of
+    serverless calls for answers nobody was reading. The group's data is now
+    what the server rendered, updated when the viewer asks (the refresh button)
+    or does something that changes who they are (sign in, sign out, removing a
+    response). The viewer's own edits never wait on any of it: `participants`
+    below lays their live slots over the group's.
+  */
+  const [refreshState, setRefreshState] = useState<RefreshState>('idle');
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  const refreshSeq = useRef(0);
+
+  // The server rendered this data a moment ago. Stamped after mount rather than
+  // during render, so the server's clock and timezone never reach the markup
+  // and the first client render matches it.
+  useEffect(() => {
+    setFetchedAt(Date.now());
+  }, []);
+
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
+    setRefreshState('refreshing');
     try {
       const response = await fetch(`/api/events/${event.slug}`, { cache: 'no-store' });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = (await response.json()) as EventPayload;
-      setEvent(payload);
+      // A later refresh has been asked for since (a sign-in straight after a
+      // click, say), and it may carry a different viewer. Let that one land.
+      if (seq !== refreshSeq.current) return;
 
+      setEvent(payload);
       // Only adopt the server's copy of my row when there is nothing local in
-      // flight — otherwise a poll landing mid-drag would erase the drag.
+      // flight — otherwise a refresh landing mid-drag would erase the drag.
       if (!dirtyRef.current && meIdRef.current) {
         const mine = payload.participants.find((person) => person.id === meIdRef.current);
         if (mine) setMySlots(new Set(mine.slots));
       }
+      setFetchedAt(Date.now());
+      setRefreshState('idle');
     } catch {
-      /* a dropped poll is not worth surfacing; the next one is 5s away */
+      if (seq === refreshSeq.current) setRefreshState('error');
     }
   }, [event.slug]);
-
-  useEffect(() => {
-    const tick = () => {
-      if (document.visibilityState === 'visible') void refresh();
-    };
-    const interval = setInterval(tick, POLL_MS);
-    document.addEventListener('visibilitychange', tick);
-    window.addEventListener('focus', tick);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', tick);
-      window.removeEventListener('focus', tick);
-    };
-  }, [refresh]);
 
   /* ---------------------------------------------------------------- editing */
 
@@ -192,14 +205,38 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
           dirtyRef.current = false;
           setSaveState('saved');
           setSaveError(null);
+
+          // No refetch: my save is already on screen, because `participants`
+          // lays my live slots over the group's. The server's copy of my row
+          // is folded into the group list anyway, so it stays true after I
+          // sign out. Only for the latest save — an older reply landing late
+          // must not overwrite a newer one.
+          const body = (await response.json().catch(() => null)) as {
+            participant?: { id: string; name: string; slots: number[]; updatedAt: string };
+          } | null;
+          const row = body?.participant;
+          if (row) {
+            setEvent((current) => {
+              const known = current.participants.some((person) => person.id === row.id);
+              return {
+                ...current,
+                participants: known
+                  ? current.participants.map((person) =>
+                      person.id === row.id
+                        ? { ...person, slots: row.slots, updatedAt: row.updatedAt }
+                        : person,
+                    )
+                  : [...current.participants, { ...row, email: null }],
+              };
+            });
+          }
         }
-        void refresh();
       } catch {
         setSaveError('Could not reach the server. Your changes are not saved yet.');
         setSaveState('error');
       }
     },
-    [event.slug, refresh],
+    [event.slug],
   );
 
   const commit = useCallback(
@@ -357,7 +394,10 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
 
       setTooltip((current) => {
         if (current?.pinned && !payload.pinned) return current;
+        // Tapping the cell whose tooltip is already pinned puts it away again.
+        if (current?.pinned && payload.pinned && current.slot === payload.slot) return null;
         return {
+          slot: payload.slot,
           heading,
           count: available.length,
           total,
@@ -371,7 +411,9 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
     [participants, slotSets, geometry, total, showViewerTimes, shiftMinutes],
   );
 
-  // A tap outside the grid releases a pinned tooltip.
+  // A tap outside the grid releases a pinned tooltip. So does any scroll: the
+  // tooltip is fixed to the screen, and once the page moves it would be
+  // pointing at a cell that is no longer under it.
   useEffect(() => {
     if (!tooltip?.pinned) return;
     const release = (nativeEvent: Event) => {
@@ -379,8 +421,15 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
       if (target?.closest('[data-hl]')) return;
       setTooltip(null);
     };
+    const drop = () => setTooltip(null);
     document.addEventListener('pointerdown', release);
-    return () => document.removeEventListener('pointerdown', release);
+    window.addEventListener('scroll', drop, { capture: true, passive: true });
+    window.addEventListener('resize', drop);
+    return () => {
+      document.removeEventListener('pointerdown', release);
+      window.removeEventListener('scroll', drop, { capture: true });
+      window.removeEventListener('resize', drop);
+    };
   }, [tooltip?.pinned]);
 
   /* ----------------------------------------------------------------- render */
@@ -408,6 +457,23 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
   const editing = mobileEditing && !event.responsesClosed;
   const personalOnMobile = event.responsesClosed || !meId || editing;
   const groupOnMobile = !editing;
+
+  // The switch between the two halves, pinned to the top of the screen on one
+  // column so neither is ever a long scroll away — the grids are taller than a
+  // phone. Only offered when there are two halves to switch between.
+  const showTabs = meId !== null && !event.responsesClosed;
+  const tabsAnchor = useRef<HTMLDivElement>(null);
+
+  const switchHalf = (toEditing: boolean) => {
+    setMobileEditing(toEditing);
+    setTooltip(null);
+    // Scrolled down into one half, the other would open somewhere in its
+    // middle. Put its top just under the pinned bar instead.
+    const anchor = tabsAnchor.current;
+    if (!anchor) return;
+    const top = anchor.getBoundingClientRect().top + window.scrollY;
+    if (window.scrollY > top) window.scrollTo({ top, behavior: 'instant' });
+  };
 
   const personalGrid =
     geometry.mode === 'date_time' ? (
@@ -456,31 +522,42 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
     );
 
   return (
-    <main className="mx-auto w-full max-w-[1440px] px-2 py-5 sm:px-6 sm:py-8">
+    <main
+      className={[
+        'mx-auto w-full max-w-[1440px] px-2 py-5 sm:px-6 sm:py-8',
+        // How much the pinned tab bar covers, for the grids' sticky day
+        // headers to sit under. Desktop has no bar.
+        showTabs ? '[--sticky-top:calc(3.75rem+1px+env(safe-area-inset-top))] lg:[--sticky-top:0px]' : '',
+      ].join(' ')}
+    >
       <header className="border-b border-line pb-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{event.title}</h1>
+            <h1 className="text-xl font-bold tracking-tight [overflow-wrap:anywhere] sm:text-2xl">
+              {event.title}
+            </h1>
             <p className="num mt-1.5 text-[0.8125rem] text-muted">{formatDateSpan(event.dates)}</p>
           </div>
           {/*
-            No shrink-0 here: with four buttons the row is wider than a phone,
-            and a row that cannot shrink to the line never reaches its own
-            flex-wrap — it just overflows. The buttons keep theirs, so they wrap
-            whole rather than squashing.
+            No shrink-0 here: with three buttons the row can be wider than a
+            phone, and a row that cannot shrink to the line never reaches its
+            own flex-wrap — it just overflows. The buttons keep theirs, so they
+            wrap whole rather than squashing.
 
-            Below `sm:` that wrap still landed a ragged 2x2, so there the row is
-            a two-column grid instead: tracks give every button the same width
-            whatever its label says, and an odd count leaves the last cell empty
-            rather than stretching one button wider than the rest.
+            Below `sm:` the row is a two-column grid instead: tracks give every
+            button the same width whatever its label says, and an odd count
+            leaves the last cell empty rather than stretching one button wider
+            than the rest. The phone's way into your own grid is the pinned
+            My availability / Group bar under this header, so it has no button
+            up here.
 
             That grid is also the only place `order-*` applies, to lift Copy
             link into the top row and drop Edit days2meet into the bottom one.
             It resets at `sm:`, so source order is still the desktop order and
             the flex row's tab order still matches what you see. On a phone it
             no longer does — a keyboard or screen reader reaches Edit days2meet
-            second and Copy link last, which is the price of the swap. All four
-            grid cells are numbered rather than just the swapped pair, because
+            second and Copy link last, which is the price of the swap. Every
+            grid cell is numbered rather than just the swapped pair, because
             anything left un-numbered sorts as 0 and would jump the queue — the
             GitHub square at the end needs no number because it is not in the
             grid at all. Copy link needs the wrapper only because it takes no
@@ -494,19 +571,10 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
             {event.viewerIsLeader ? (
               <Link
                 href={`/e/${event.slug}/edit`}
-                className="btn btn-edit order-4 min-h-11 shrink-0 sm:order-none"
+                className="btn btn-edit order-3 min-h-11 shrink-0 sm:order-none"
               >
                 Edit days2meet
               </Link>
-            ) : null}
-            {meId && !mobileEditing && !event.responsesClosed ? (
-              <button
-                type="button"
-                className="btn btn-edit order-3 min-h-11 shrink-0 sm:order-none lg:hidden"
-                onClick={() => setMobileEditing(true)}
-              >
-                Edit availability
-              </button>
             ) : null}
             <div className="order-2 grid sm:contents">
               <CopyLinkButton />
@@ -548,7 +616,7 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
 
         {/* The toggle sits in the sentence it changes, on the same baseline. */}
         {timeLine ? (
-          <p className="hint mt-2">
+          <p className="hint mt-2 [overflow-wrap:anywhere]">
             {timeLine}{' '}
             {viewerZone && shiftMinutes !== 0 ? (
               <button
@@ -562,6 +630,59 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
           </p>
         ) : null}
       </header>
+
+      {/*
+        One column only: which half is on screen. Sticky, so it is one tap from
+        anywhere in either grid, and it carries the save state, which the
+        heading beside your grid scrolls away from long before you stop
+        painting. `aria-pressed` buttons rather than tabs: on desktop both
+        halves are always showing, so there is no tab panel to point at.
+      */}
+      <div ref={tabsAnchor} />
+      {showTabs ? (
+        <div className="sticky top-0 z-30 -mx-2 box-content flex h-[3.75rem] items-center gap-2 border-b border-line bg-paper px-2 pt-[env(safe-area-inset-top)] sm:-mx-6 sm:px-6 lg:hidden">
+          <div
+            role="group"
+            aria-label="Show"
+            className="grid flex-1 grid-cols-2 gap-0.5 rounded-lg border border-line bg-surface p-0.5"
+          >
+            {(
+              [
+                { toEditing: true, label: 'My availability' },
+                { toEditing: false, label: 'Group' },
+              ] as const
+            ).map(({ toEditing, label }) => {
+              const active = editing === toEditing;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => switchHalf(toEditing)}
+                  className={[
+                    'min-h-11 cursor-pointer rounded-md px-2 text-[0.875rem] font-medium transition-colors',
+                    active ? 'bg-ink text-paper' : 'text-ink hover:bg-ramp-1',
+                  ].join(' ')}
+                >
+                  {label}
+                  {!toEditing && total > 0 ? (
+                    <span className={`num ml-1 text-[0.75rem] ${active ? 'text-paper/75' : 'text-muted'}`}>
+                      {total}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+          {saveLabel ? (
+            <span
+              className={`hint num w-[4.25rem] shrink-0 text-right text-[0.75rem] ${saveState === 'error' ? 'text-danger' : ''}`}
+            >
+              {saveLabel}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/*
         Two columns, two rows on desktop: the grids on top, their read-outs
@@ -597,7 +718,9 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
             <div className="panel p-4">
               <p className="text-[0.875rem] font-semibold">Responses are closed.</p>
               <p className="hint mt-1">
-                The group leader stopped collecting answers. The results are still on the right.
+                The event planner stopped collecting answers. The results are still{' '}
+                <span className="lg:hidden">below</span>
+                <span className="hidden lg:inline">on the right</span>.
               </p>
             </div>
           ) : meId && me ? (
@@ -606,19 +729,24 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
                 <p className="min-w-0 text-[0.875rem]">
                   Signed in as <span className="font-semibold">{me.name}</span>
                   {event.viewerEmail ? (
-                    <span className="break-all text-muted"> ({event.viewerEmail})</span>
+                    <span className="text-muted [overflow-wrap:anywhere]"> ({event.viewerEmail})</span>
                   ) : null}
                 </p>
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    className="btn"
+                    className="btn min-h-11 sm:min-h-0"
                     onClick={() => commit(new Set())}
                     disabled={mySlots.size === 0}
                   >
                     Clear all
                   </button>
-                  <button type="button" className="btn-link" onClick={signOut}>
+                  {/* Full tap height on a phone; still reads as a text link. */}
+                  <button
+                    type="button"
+                    className="btn-link min-h-11 px-1 sm:min-h-0 sm:px-0"
+                    onClick={signOut}
+                  >
                     Sign out
                   </button>
                 </div>
@@ -638,21 +766,30 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
                 </p>
               ) : null}
 
+              {/* Under a finger the hint goes above the grid, where it is read
+                  before the first touch — below a grid taller than the screen
+                  it would be found only after the confusion it prevents. */}
+              <p className="hint mb-2 hidden pointer-coarse:block">
+                {geometry.mode === 'date_time'
+                  ? 'Tap a slot to mark it. For a block, press and hold a slot until it lights up, then drag. Swipe to scroll.'
+                  : 'Tap a day to mark it. For several, press and hold a day until it lights up, then drag across the rest.'}
+              </p>
               <div className="panel p-1.5 sm:p-3">{personalGrid}</div>
-              <p className="hint mt-1.5">
+              <p className="hint mt-1.5 pointer-coarse:hidden">
                 {geometry.mode === 'date_time'
                   ? 'Drag to paint a block. Drag over marked cells to clear them. Arrow keys move, space toggles, shift+arrow extends.'
-                  : 'Tap a day to mark it. Drag across days to mark several at once.'}
+                  : 'Click a day to mark it. Drag across days to mark several at once.'}
               </p>
 
-              {/* The only way out of the editor on one column. Desktop shows both
-                  halves at once and never needs it. */}
+              {/* The way out of the editor at the end of the grid on one
+                  column; the pinned bar is the way out from anywhere else.
+                  Desktop shows both halves at once and never needs it. */}
               <button
                 type="button"
-                className="btn btn-primary mt-3 w-full lg:hidden"
-                onClick={() => setMobileEditing(false)}
+                className="btn btn-primary mt-3 min-h-11 w-full lg:hidden"
+                onClick={() => switchHalf(false)}
               >
-                Finish editing
+                Done — see the group
               </button>
             </>
           ) : (
@@ -660,6 +797,10 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
               onSignIn={signIn}
               collectEmail={event.collectEmail}
               emailRequired={event.emailRequired}
+              emailPrompt={event.emailPrompt}
+              plannerName={
+                event.participants.find((person) => person.id === event.leaderId)?.name ?? null
+              }
               names={event.participants.map((person) => person.name)}
             />
           )}
@@ -670,12 +811,41 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
           aria-labelledby="group-heading"
           className={`min-w-0 lg:col-start-2 lg:row-start-1 lg:block ${groupOnMobile ? '' : 'hidden'}`}
         >
-          <h2 id="group-heading" className="section-title mb-2">
-            Group availability{' '}
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <h2 id="group-heading" className="section-title">
+              Group availability{' '}
+              {total > 0 ? (
+                <span className="font-normal text-muted">(gold = everyone free)</span>
+              ) : null}
+            </h2>
+            {/* On one column the ranking sits under a heat map taller than the
+                screen and the roster after it. This is the short way down;
+                desktop has it beside the grids and needs none. A button, not
+                a #fragment link, so Copy link never hands out a URL that
+                opens halfway down the page. */}
             {total > 0 ? (
-              <span className="font-normal text-muted">(gold = everyone free)</span>
+              <button
+                type="button"
+                className="btn-link -my-3 shrink-0 py-3 lg:hidden"
+                onClick={() => {
+                  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                  document
+                    .getElementById('results')
+                    ?.scrollIntoView({ block: 'start', behavior: still ? 'auto' : 'smooth' });
+                }}
+              >
+                Best {geometry.mode === 'date_only' ? 'days' : 'times'} ↓
+              </button>
             ) : null}
-          </h2>
+          </div>
+
+          {/* Right under the heading on both layouts: the group grid is what
+              goes stale, so this is where anyone checking it will look. On a
+              phone it is also the first thing under the pinned bar whenever
+              the Group half is switched to. */}
+          <div className="-mt-1 mb-2">
+            <RefreshButton fetchedAt={fetchedAt} state={refreshState} onRefresh={refresh} />
+          </div>
 
           {total === 0 ? (
             <p className="mb-3 rounded-lg border border-line bg-surface px-3 py-2 text-[0.875rem]">
@@ -715,7 +885,8 @@ export default function EventView({ initialEvent, initialMeId }: Props) {
         {/* Bottom left — what the group grid adds up to */}
         {total > 0 ? (
           <div
-            className={`panel min-w-0 p-3 lg:col-start-1 lg:row-start-2 lg:block ${groupOnMobile ? '' : 'hidden'}`}
+            id="results"
+            className={`panel min-w-0 scroll-mt-[calc(var(--sticky-top,0px)+0.75rem)] p-3 lg:col-start-1 lg:row-start-2 lg:block ${groupOnMobile ? '' : 'hidden'}`}
           >
             <ResultsPanel
               geometry={geometry}

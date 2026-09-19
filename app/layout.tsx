@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next';
-import { Bricolage_Grotesque, Geist, IBM_Plex_Mono } from 'next/font/google';
+import { Bricolage_Grotesque, Geist, Inter } from 'next/font/google';
+
+import SiteAnalytics from '@/components/SiteAnalytics';
 
 import './globals.css';
 
@@ -15,10 +17,12 @@ const ui = Geist({
   display: 'swap',
 });
 
-const mono = IBM_Plex_Mono({
+/* Every figure in the app (`.num` in globals.css): grid labels, counts, dates.
+   Inter with tabular figures, so digits keep one width and columns line up. */
+const numerals = Inter({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
-  variable: '--font-mono-face',
+  variable: '--font-num-face',
   display: 'swap',
 });
 
@@ -35,8 +39,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${ui.variable} ${mono.variable}`}>
-      <body>{children}</body>
+    <html lang="en" className={`${display.variable} ${ui.variable} ${numerals.variable}`}>
+      <body>
+        {children}
+        <SiteAnalytics />
+      </body>
     </html>
   );
 }

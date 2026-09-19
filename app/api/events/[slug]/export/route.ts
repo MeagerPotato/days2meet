@@ -33,7 +33,7 @@ export async function GET(_request: Request, context: { params: Promise<{ slug: 
       if (!sessionId) {
         return jsonError('You are signed out. Enter your name again to download the responses.', 401);
       }
-      return jsonError('Only the group leader can download the responses.', 403);
+      return jsonError('Only the event planner can download the responses.', 403);
     }
 
     const geometry = geometryFromRow(event);
