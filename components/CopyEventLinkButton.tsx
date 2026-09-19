@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { shareOrigin } from '@/lib/site';
+
 interface Props {
   slug: string;
 }
@@ -23,7 +25,7 @@ export default function CopyEventLinkButton({ slug }: Props) {
   );
 
   const copy = async () => {
-    const url = `${window.location.origin}/e/${slug}`;
+    const url = `${shareOrigin()}/e/${slug}`;
     try {
       await navigator.clipboard.writeText(url);
     } catch {
